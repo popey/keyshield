@@ -1,0 +1,118 @@
+#!/bin/bash
+# keyshield
+# Protects game inputs by managing GNOME keyboard shortcuts
+
+BACKUP_FILE="$HOME/.config/keyshield/keybindings.conf"
+BACKUP_DIR=$(dirname "$BACKUP_FILE")
+SHIELD_STATUS_FLAG="$HOME/.config/keyshield/shield-active"
+
+help() {
+    cat << EOF
+Usage: keyshield [command]
+
+Commands:
+    up      Raise the shield (disable GNOME shortcuts)
+    down    Lower the shield (restore GNOME shortcuts)
+    status  Show current shield status
+    -h      Show this help message
+
+Description:
+    Keyshield protects your game inputs from interference by GNOME's
+    global keyboard shortcuts. Perfect for gaming under WINE/Proton
+    where system shortcuts might conflict with game controls.
+
+Your original settings are safely stored in:
+    $BACKUP_FILE
+EOF
+}
+
+backup_settings() {
+    # Create backup directory if it doesn't exist
+    mkdir -p "$BACKUP_DIR"
+    
+    # Backup key GNOME settings
+    gsettings get org.gnome.mutter overlay-key > "$BACKUP_FILE"
+    
+    # Backup custom keybindings
+    gsettings get org.gnome.shell.keybindings toggle-overview >> "$BACKUP_FILE"
+    gsettings get org.gnome.shell.keybindings toggle-application-view >> "$BACKUP_FILE"
+    
+    # Backup window manager keybindings
+    gsettings get org.gnome.desktop.wm.keybindings switch-applications >> "$BACKUP_FILE"
+    gsettings get org.gnome.desktop.wm.keybindings switch-windows >> "$BACKUP_FILE"
+    gsettings get org.gnome.desktop.wm.keybindings close >> "$BACKUP_FILE"
+    
+    echo "GNOME keybindings backed up to $BACKUP_FILE"
+}
+
+restore_settings() {
+    if [ ! -f "$BACKUP_FILE" ]; then
+        echo "Backup file not found at $BACKUP_FILE"
+        exit 1
+    fi
+
+    # Read backup file line by line and restore settings
+    mapfile -t settings < "$BACKUP_FILE"
+    
+    # Restore settings in order
+    gsettings set org.gnome.mutter overlay-key "${settings[0]}"
+    gsettings set org.gnome.shell.keybindings toggle-overview "${settings[1]}"
+    gsettings set org.gnome.shell.keybindings toggle-application-view "${settings[2]}"
+    gsettings set org.gnome.desktop.wm.keybindings switch-applications "${settings[3]}"
+    gsettings set org.gnome.desktop.wm.keybindings switch-windows "${settings[4]}"
+    gsettings set org.gnome.desktop.wm.keybindings close "${settings[5]}"
+    
+    echo "GNOME keybindings restored from $BACKUP_FILE"
+}
+
+raise_shield() {
+    # Disable common interfering shortcuts
+    gsettings set org.gnome.mutter overlay-key "'Alt_R'"  # Change Super key behavior
+    gsettings set org.gnome.shell.keybindings toggle-overview "['']"
+    gsettings set org.gnome.shell.keybindings toggle-application-view "['']"
+    gsettings set org.gnome.desktop.wm.keybindings switch-applications "['']"
+    gsettings set org.gnome.desktop.wm.keybindings switch-windows "['']"
+    gsettings set org.gnome.desktop.wm.keybindings close "['']"
+    
+    touch "$SHIELD_STATUS_FLAG"
+    echo "Shield raised - GNOME shortcuts disabled"
+}
+
+# Check if no arguments provided
+if [ $# -eq 0 ]; then
+    help
+    exit 1
+fi
+
+case "$1" in
+    "up")
+        # Backup current settings if no backup exists
+        if [ ! -f "$BACKUP_FILE" ]; then
+            backup_settings
+        fi
+        raise_shield
+        ;;
+    "down")
+        if [ -f "$SHIELD_STATUS_FLAG" ]; then
+            restore_settings
+            rm "$SHIELD_STATUS_FLAG"
+            echo "Shield lowered - GNOME shortcuts restored"
+        else
+            echo "Shield was not active"
+        fi
+        ;;
+    "status")
+        if [ -f "$SHIELD_STATUS_FLAG" ]; then
+            echo "Shield is currently RAISED"
+        else
+            echo "Shield is currently LOWERED"
+        fi
+        ;;
+    "-h"|"--help")
+        help
+        ;;
+    *)
+        echo "Invalid command. Use -h for help."
+        exit 1
+        ;;
+esac
